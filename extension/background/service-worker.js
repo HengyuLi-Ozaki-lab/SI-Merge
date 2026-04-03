@@ -1,10 +1,10 @@
 /**
  * SI Merge Background Service Worker
  *
- * Orchestrates the merge workflow:
- * 1. Receives PDF data from content script (fetched in page context with user's cookies)
- * 2. Or falls back to service-worker fetch / DOI-based backend merge
- * 3. Uploads to backend, monitors SSE progress, triggers download
+ * Orchestrates the merge workflow with three PDF download strategies:
+ * 1. chrome.scripting.executeScript in MAIN world (bypasses CSP, uses user cookies)
+ * 2. Service worker fetch (works for some open-access publishers)
+ * 3. Backend DOI-based download (last resort)
  */
 
 const DEFAULT_BACKEND = 'https://si-merge.onrender.com';
@@ -27,7 +27,49 @@ function broadcastProgress(tabId, step, status, detail) {
   chrome.runtime.sendMessage({ type: 'MERGE_PROGRESS', step, status, detail }).catch(() => {});
 }
 
-async function fetchPdfFromPublisher(pdfUrl, articleUrl) {
+/**
+ * Fetch PDF in the page's MAIN world using chrome.scripting.executeScript.
+ * This bypasses the page's CSP and uses the user's actual browser session
+ * (Cloudflare clearance, institutional cookies, etc.).
+ * Returns a Uint8Array of the PDF data, or null on failure.
+ */
+async function fetchPdfInPageContext(tabId, pdfUrl) {
+  if (!pdfUrl || !tabId) return null;
+
+  try {
+    const results = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      args: [pdfUrl],
+      func: async (url) => {
+        try {
+          const resp = await fetch(url, { credentials: 'same-origin' });
+          if (!resp.ok) return { error: `HTTP ${resp.status}` };
+          const buf = await resp.arrayBuffer();
+          return { data: Array.from(new Uint8Array(buf)) };
+        } catch (e) {
+          return { error: e.message };
+        }
+      },
+    });
+
+    const result = results?.[0]?.result;
+    if (!result || result.error || !result.data) return null;
+
+    const bytes = new Uint8Array(result.data);
+    if (bytes.length < 1000) return null;
+
+    const header = new TextDecoder().decode(bytes.slice(0, 5));
+    if (!header.startsWith('%PDF')) return null;
+
+    return bytes;
+  } catch (err) {
+    console.log('[SI Merge] Page-context PDF fetch failed:', err.message);
+    return null;
+  }
+}
+
+async function fetchPdfFromServiceWorker(pdfUrl, articleUrl) {
   if (!pdfUrl) return null;
 
   try {
@@ -73,15 +115,12 @@ async function uploadPdfToBackend(pdfBlob, doi) {
   return resp.json();
 }
 
-async function mergeByDoi(doi, siUrls) {
+async function mergeByDoi(doi) {
   const base = await getBackendUrl();
-  const body = { doi };
-  if (siUrls && siUrls.length) body.si_urls = siUrls;
-
   const resp = await fetch(`${base}/api/merge-by-doi`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
+    body: JSON.stringify({ doi }),
   });
 
   if (!resp.ok) {
@@ -127,35 +166,43 @@ function listenProgress(taskId, tabId) {
 }
 
 async function handleMerge(payload, tabId) {
-  const { doi, pdfUrl, articleUrl, title, pdfData } = payload;
+  const { doi, pdfUrl, articleUrl, title } = payload;
 
   try {
     let task;
+    let pdfBlob = null;
 
-    // Strategy A: PDF already downloaded by content script (page context)
-    if (pdfData && pdfData.length > 0) {
-      broadcastProgress(tabId, 1, 'done', `PDF ready (${Math.round(pdfData.length / 1024)} KB)`);
-      const blob = new Blob([new Uint8Array(pdfData)], { type: 'application/pdf' });
-      broadcastProgress(tabId, 1, 'uploading', 'Uploading to server...');
-      task = await uploadPdfToBackend(blob, doi);
-    } else {
-      // Strategy B: try service worker fetch (works for some publishers)
-      broadcastProgress(tabId, 1, 'started', 'Downloading article PDF...');
-      const pdfBlob = await fetchPdfFromPublisher(pdfUrl, articleUrl);
+    // Strategy A: fetch PDF in page's MAIN world (bypasses CSP + uses user cookies)
+    broadcastProgress(tabId, 1, 'started', 'Downloading article PDF...');
+    const pageData = await fetchPdfInPageContext(tabId, pdfUrl);
 
-      if (pdfBlob) {
-        broadcastProgress(tabId, 1, 'done', `PDF downloaded (${Math.round(pdfBlob.size / 1024)} KB)`);
-        task = await uploadPdfToBackend(pdfBlob, doi);
-      } else {
-        // Strategy C: let backend download via DOI (open-access only)
-        broadcastProgress(tabId, 1, 'searching', 'Using server-side download...');
-        task = await mergeByDoi(doi);
+    if (pageData) {
+      pdfBlob = new Blob([pageData], { type: 'application/pdf' });
+      broadcastProgress(tabId, 1, 'done', `PDF downloaded (${Math.round(pageData.length / 1024)} KB)`);
+    }
+
+    // Strategy B: service worker fetch (fallback for publishers without strict CSP/Cloudflare)
+    if (!pdfBlob) {
+      const swBlob = await fetchPdfFromServiceWorker(pdfUrl, articleUrl);
+      if (swBlob) {
+        pdfBlob = swBlob;
+        broadcastProgress(tabId, 1, 'done', `PDF downloaded (${Math.round(swBlob.size / 1024)} KB)`);
       }
+    }
+
+    if (pdfBlob) {
+      broadcastProgress(tabId, 1, 'uploading', 'Uploading to server...');
+      task = await uploadPdfToBackend(pdfBlob, doi);
+    } else {
+      // Strategy C: let backend download via DOI (open access only)
+      broadcastProgress(tabId, 1, 'searching', 'Using server-side download...');
+      task = await mergeByDoi(doi);
     }
 
     const taskId = task.task_id;
     const result = await listenProgress(taskId, tabId);
 
+    // Trigger download
     const base = await getBackendUrl();
     const downloadUrl = `${base}/api/tasks/${taskId}/download`;
     const filename = title
@@ -184,7 +231,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'START_MERGE_BY_DOI') {
     const tabId = msg.tabId || 0;
-    handleMerge({ doi: msg.doi, pdfUrl: null, articleUrl: null, title: null, pdfData: null }, tabId);
+    handleMerge({ doi: msg.doi, pdfUrl: null, articleUrl: null, title: null }, tabId);
     sendResponse({ ok: true });
     return true;
   }
