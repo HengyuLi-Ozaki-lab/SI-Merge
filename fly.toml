@@ -1,0 +1,20 @@
+app = "si-merge"
+primary_region = "sjc"
+
+[build]
+
+[http_service]
+  internal_port = 8000
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+[env]
+  SI_MERGE_MAX_UPLOAD_MB = "50"
+  SI_MERGE_TASK_TTL = "3600"
+
+[[vm]]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 1

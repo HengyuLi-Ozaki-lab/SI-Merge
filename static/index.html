@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SI Merge — Merge Supplementary Information into Papers</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #f8f9fb;
+      --card: #ffffff;
+      --border: #e2e6ed;
+      --text: #1a1f36;
+      --text-secondary: #5a607f;
+      --primary: #4f6ef7;
+      --primary-hover: #3b5de7;
+      --success: #10b981;
+      --error: #ef4444;
+      --warning: #f59e0b;
+      --radius: 12px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      min-height: 100vh;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 40px 20px 80px;
+    }
+
+    .header {
+      text-align: center;
+      margin-bottom: 40px;
+    }
+    .header h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.5px; margin-bottom: 8px; }
+    .header p { color: var(--text-secondary); font-size: 15px; max-width: 520px; margin: 0 auto; }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 32px;
+      box-shadow: var(--shadow);
+    }
+    .card + .card { margin-top: 20px; }
+
+    /* Drop zone */
+    .dropzone {
+      border: 2px dashed var(--border);
+      border-radius: var(--radius);
+      padding: 48px 24px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .dropzone:hover, .dropzone.dragover {
+      border-color: var(--primary);
+      background: rgba(79, 110, 247, 0.03);
+    }
+    .dropzone.has-files {
+      border-color: var(--success);
+      background: rgba(16, 185, 129, 0.03);
+      padding: 20px;
+    }
+    .dropzone input[type="file"] {
+      position: absolute; inset: 0; opacity: 0; cursor: pointer;
+    }
+    .dropzone-icon { font-size: 40px; margin-bottom: 12px; opacity: 0.5; }
+    .dropzone-label { font-size: 15px; color: var(--text-secondary); }
+    .dropzone-label strong { color: var(--primary); }
+
+    /* File list */
+    .file-list { list-style: none; }
+    .file-item {
+      display: flex; align-items: center; gap: 10px;
+      padding: 8px 0;
+    }
+    .file-item + .file-item { border-top: 1px solid var(--border); }
+    .file-item .file-icon { font-size: 22px; flex-shrink: 0; }
+    .file-item .file-details { flex: 1; min-width: 0; }
+    .file-item .file-name {
+      font-weight: 600; font-size: 13px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .file-item .file-size { font-size: 12px; color: var(--text-secondary); }
+    .file-item .remove-btn {
+      background: none; border: none; color: var(--text-secondary);
+      cursor: pointer; font-size: 16px; padding: 2px 6px; border-radius: 6px;
+    }
+    .file-item .remove-btn:hover { background: rgba(239,68,68,0.1); color: var(--error); }
+    .file-count { font-size: 13px; color: var(--text-secondary); margin-top: 8px; text-align: center; }
+
+    /* Options section */
+    .options-section { margin-top: 24px; }
+    .section-title {
+      font-size: 14px; font-weight: 600; margin-bottom: 12px;
+      color: var(--text);
+    }
+    .form-group { margin-bottom: 16px; }
+    .form-group label {
+      display: block; font-size: 13px; font-weight: 500;
+      margin-bottom: 4px; color: var(--text);
+    }
+    .form-group input[type="text"],
+    .form-group textarea {
+      width: 100%; padding: 8px 12px; border: 1px solid var(--border);
+      border-radius: 8px; font-size: 13px; font-family: inherit;
+      outline: none; transition: border-color 0.2s; resize: vertical;
+    }
+    .form-group input[type="text"]:focus,
+    .form-group textarea:focus { border-color: var(--primary); }
+    .form-group .hint { font-size: 12px; color: var(--text-secondary); margin-top: 3px; line-height: 1.5; }
+
+    .divider {
+      display: flex; align-items: center; gap: 12px;
+      margin: 16px 0; color: var(--text-secondary); font-size: 12px;
+    }
+    .divider::before, .divider::after {
+      content: ''; flex: 1; height: 1px; background: var(--border);
+    }
+
+    .info-box {
+      background: #f0f4ff; border: 1px solid #d4deff; border-radius: 8px;
+      padding: 12px 14px; font-size: 12px; color: #3b5998; line-height: 1.6;
+      margin-bottom: 16px;
+    }
+    .info-box.warning {
+      background: #fff8ed; border-color: #fde4a8; color: #8a6500;
+    }
+    .info-box b { font-weight: 600; }
+
+    .si-file-upload-row {
+      display: flex; align-items: center; gap: 10px;
+    }
+    .si-file-upload-row input[type="file"] { font-size: 13px; flex: 1; }
+    .si-file-names {
+      font-size: 12px; color: var(--success); margin-top: 4px;
+    }
+
+    .submit-btn {
+      width: 100%; padding: 14px; background: var(--primary); color: white;
+      border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+      cursor: pointer; margin-top: 24px; transition: background 0.2s, opacity 0.2s;
+    }
+    .submit-btn:hover:not(:disabled) { background: var(--primary-hover); }
+    .submit-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* Progress */
+    .progress-section { display: none; }
+    .progress-section.active { display: block; }
+
+    .batch-header { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+    .batch-bar-wrap {
+      background: var(--border); border-radius: 6px; height: 8px;
+      margin-bottom: 16px; overflow: hidden;
+    }
+    .batch-bar {
+      height: 100%; background: var(--primary); border-radius: 6px;
+      transition: width 0.4s ease;
+    }
+
+    .steps { list-style: none; }
+    .step {
+      display: flex; gap: 14px; padding: 10px 0; align-items: flex-start;
+    }
+    .step + .step { border-top: 1px solid var(--border); }
+    .step-indicator {
+      width: 28px; height: 28px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 13px; font-weight: 600; flex-shrink: 0;
+      background: var(--border); color: var(--text-secondary); transition: all 0.3s;
+    }
+    .step.active .step-indicator { background: var(--primary); color: white; animation: pulse 1.5s infinite; }
+    .step.done .step-indicator { background: var(--success); color: white; }
+    .step.error .step-indicator { background: var(--error); color: white; }
+    .step-content { flex: 1; min-width: 0; }
+    .step-title { font-size: 14px; font-weight: 600; }
+    .step-detail { font-size: 13px; color: var(--text-secondary); margin-top: 2px; word-break: break-word; }
+
+    @keyframes pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(79,110,247,0.4); }
+      50% { box-shadow: 0 0 0 6px rgba(79,110,247,0); }
+    }
+
+    /* Result */
+    .result-section { display: none; }
+    .result-section.active { display: block; }
+
+    .result-card { text-align: center; }
+    .result-icon { font-size: 48px; margin-bottom: 12px; }
+    .result-title { font-size: 18px; font-weight: 700; margin-bottom: 4px; }
+    .result-subtitle { font-size: 14px; color: var(--text-secondary); margin-bottom: 20px; }
+
+    .stats {
+      display: grid; grid-template-columns: repeat(3, 1fr);
+      gap: 12px; margin-bottom: 24px;
+    }
+    .stat { background: var(--bg); border-radius: 8px; padding: 12px; }
+    .stat-value { font-size: 22px; font-weight: 700; color: var(--primary); }
+    .stat-label { font-size: 12px; color: var(--text-secondary); margin-top: 2px; }
+
+    .download-btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 14px 32px; background: var(--success); color: white;
+      border: none; border-radius: 10px; font-size: 15px; font-weight: 600;
+      cursor: pointer; text-decoration: none; transition: opacity 0.2s;
+    }
+    .download-btn:hover { opacity: 0.9; }
+
+    .restart-btn {
+      display: inline-block; margin-top: 16px; font-size: 13px;
+      color: var(--text-secondary); cursor: pointer;
+      background: none; border: none; text-decoration: underline;
+    }
+
+    /* Batch results table */
+    .batch-results { width: 100%; margin: 16px 0; text-align: left; }
+    .batch-results .br-row {
+      display: flex; align-items: center; gap: 10px;
+      padding: 10px 0; border-top: 1px solid var(--border);
+    }
+    .br-status { flex-shrink: 0; font-size: 18px; }
+    .br-info { flex: 1; min-width: 0; }
+    .br-name { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .br-meta { font-size: 12px; color: var(--text-secondary); }
+    .br-error { font-size: 12px; color: var(--error); }
+    .br-download {
+      font-size: 13px; color: var(--primary); text-decoration: none;
+      padding: 4px 10px; border: 1px solid var(--primary); border-radius: 6px;
+      white-space: nowrap; transition: all 0.2s;
+    }
+    .br-download:hover { background: var(--primary); color: white; }
+
+    /* Error */
+    .error-section { display: none; }
+    .error-section.active { display: block; }
+    .error-card { text-align: center; }
+    .error-icon { font-size: 48px; margin-bottom: 12px; }
+    .error-message {
+      color: var(--error); font-size: 14px; margin-bottom: 16px; word-break: break-word;
+    }
+    .error-hint {
+      text-align: left; background: #fff8ed; border: 1px solid #fde4a8;
+      border-radius: 8px; padding: 14px 16px; font-size: 13px; color: #6b5000;
+      line-height: 1.7; margin-bottom: 20px; display: none;
+    }
+    .error-hint b { font-weight: 600; }
+    .error-hint ol { margin: 6px 0 0 18px; }
+
+    .footer {
+      text-align: center; margin-top: 40px; font-size: 13px; color: var(--text-secondary);
+    }
+    .footer a { color: var(--primary); text-decoration: none; }
+    .api-link { display: inline-block; margin-top: 8px; font-size: 12px; color: var(--text-secondary); text-decoration: none; }
+    .api-link:hover { color: var(--primary); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>SI Merge</h1>
+      <p>Upload journal article PDFs. We'll automatically find their Supplementary Information, merge it, and add cross-reference links.</p>
+    </div>
+
+    <!-- Upload Section -->
+    <div class="card upload-section" id="uploadSection">
+      <div class="dropzone" id="dropzone">
+        <input type="file" id="fileInput" accept=".pdf" multiple>
+        <div class="dropzone-icon" id="dropzoneIcon">&#128196;</div>
+        <div class="dropzone-label" id="dropzoneLabel">
+          Drop article PDF(s) here or <strong>click to browse</strong><br>
+          <span style="font-size:12px">Supports multiple files for batch processing</span>
+        </div>
+      </div>
+
+      <!-- Options — always visible -->
+      <div class="options-section">
+        <div class="section-title">Options</div>
+
+        <div class="form-group">
+          <label for="doiInput">DOI (optional, single file only)</label>
+          <input type="text" id="doiInput" placeholder="e.g. 10.1038/s41467-023-44674-1">
+          <div class="hint">Usually auto-detected from the PDF. Only fill this if auto-detection fails.</div>
+        </div>
+
+        <div class="divider">Manual SI — use when auto-discovery is blocked</div>
+
+        <div class="info-box">
+          Most publishers (Nature, ACS, Wiley, Elsevier, Science, PNAS, RSC, ...) are supported automatically.
+          The options below are only needed when a publisher blocks automated access (e.g. <b>APS: Physical Review Letters / B / X</b>).
+          <br><br>
+          <b>Option A — SI URL:</b> If you know the SI download link (e.g. from the article's web page),
+          paste it below. The tool will download it for you.<br>
+          <b>Option B — Upload SI file:</b> If even the download link is blocked,
+          download the SI in your browser first, then upload it here.
+        </div>
+
+        <div class="form-group">
+          <label for="siUrlInput">Option A: SI download URL(s)</label>
+          <textarea id="siUrlInput" rows="2" placeholder="https://journals.aps.org/.../supplemental_material.pdf&#10;(one URL per line)"></textarea>
+          <div class="hint">Paste the direct SI download link from the article page. Supports multiple URLs, one per line.</div>
+        </div>
+
+        <div class="form-group">
+          <label>Option B: Upload SI file(s) directly</label>
+          <div class="si-file-upload-row">
+            <input type="file" id="siFileInput" accept=".pdf,.docx,.doc" multiple>
+          </div>
+          <div class="si-file-names" id="siFileNames"></div>
+          <div class="hint">Upload SI files you've downloaded manually. Supports PDF and DOCX.</div>
+        </div>
+      </div>
+
+      <button class="submit-btn" id="submitBtn" disabled>Merge Supplementary Information</button>
+    </div>
+
+    <!-- Progress Section -->
+    <div class="card progress-section" id="progressSection">
+      <div id="batchProgress" style="display:none">
+        <div class="batch-header" id="batchHeader">Processing 0/0 files</div>
+        <div class="batch-bar-wrap"><div class="batch-bar" id="batchBar" style="width:0%"></div></div>
+      </div>
+      <ul class="steps" id="stepsList">
+        <li class="step" data-step="1">
+          <div class="step-indicator">1</div>
+          <div class="step-content">
+            <div class="step-title">Extract DOI</div>
+            <div class="step-detail" data-detail="1">Waiting...</div>
+          </div>
+        </li>
+        <li class="step" data-step="2">
+          <div class="step-indicator">2</div>
+          <div class="step-content">
+            <div class="step-title">Find SI Files</div>
+            <div class="step-detail" data-detail="2">Waiting...</div>
+          </div>
+        </li>
+        <li class="step" data-step="3">
+          <div class="step-indicator">3</div>
+          <div class="step-content">
+            <div class="step-title">Download SI</div>
+            <div class="step-detail" data-detail="3">Waiting...</div>
+          </div>
+        </li>
+        <li class="step" data-step="4">
+          <div class="step-indicator">4</div>
+          <div class="step-content">
+            <div class="step-title">Extract Text</div>
+            <div class="step-detail" data-detail="4">Waiting...</div>
+          </div>
+        </li>
+        <li class="step" data-step="5">
+          <div class="step-indicator">5</div>
+          <div class="step-content">
+            <div class="step-title">Analyze References</div>
+            <div class="step-detail" data-detail="5">Waiting...</div>
+          </div>
+        </li>
+        <li class="step" data-step="6">
+          <div class="step-indicator">6</div>
+          <div class="step-content">
+            <div class="step-title">Merge &amp; Link</div>
+            <div class="step-detail" data-detail="6">Waiting...</div>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <!-- Single Result Section -->
+    <div class="card result-section" id="resultSection">
+      <div class="result-card">
+        <div class="result-icon">&#9989;</div>
+        <div class="result-title" id="resultTitle">Merge Complete!</div>
+        <div class="result-subtitle" id="resultSubtitle"></div>
+        <div class="stats" id="resultStats">
+          <div class="stat">
+            <div class="stat-value" id="statPages">-</div>
+            <div class="stat-label">Total Pages</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="statForward">-</div>
+            <div class="stat-label">Forward Links</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="statBack">-</div>
+            <div class="stat-label">Back Links</div>
+          </div>
+        </div>
+        <a class="download-btn" id="downloadBtn" href="#">&#11015;&#65039; Download Merged PDF</a>
+        <br>
+        <button class="restart-btn" id="restartBtn">Process another article</button>
+      </div>
+    </div>
+
+    <!-- Batch Result Section -->
+    <div class="card result-section" id="batchResultSection">
+      <div class="result-card">
+        <div class="result-icon">&#9989;</div>
+        <div class="result-title" id="batchResultTitle">Batch Complete!</div>
+        <div class="result-subtitle" id="batchResultSubtitle"></div>
+        <div class="stats">
+          <div class="stat">
+            <div class="stat-value" id="bstatTotal">-</div>
+            <div class="stat-label">Total Files</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="bstatOk">-</div>
+            <div class="stat-label">Succeeded</div>
+          </div>
+          <div class="stat">
+            <div class="stat-value" id="bstatFail">-</div>
+            <div class="stat-label">Failed</div>
+          </div>
+        </div>
+        <div class="batch-results" id="batchFileList"></div>
+        <button class="restart-btn" id="batchRestartBtn">Process more articles</button>
+      </div>
+    </div>
+
+    <!-- Error Section -->
+    <div class="card error-section" id="errorSection">
+      <div class="error-card">
+        <div class="error-icon">&#10060;</div>
+        <div class="result-title">Something went wrong</div>
+        <div class="error-message" id="errorMessage"></div>
+        <div class="error-hint" id="errorHint">
+          <b>The publisher appears to block automated access.</b> You can still merge the SI manually:
+          <ol>
+            <li>Open the article on the publisher's website in your browser.</li>
+            <li>Find the "Supplemental Material" or "Supporting Information" link.</li>
+            <li>Download the SI file (PDF or DOCX) to your computer.</li>
+            <li>Click "Try again" below, then upload the SI file using <b>"Option B: Upload SI file(s)"</b>.</li>
+          </ol>
+        </div>
+        <button class="submit-btn" id="retryBtn">Try again with manual SI</button>
+      </div>
+    </div>
+
+    <div class="footer">
+      <p>Files are processed on this server and not stored permanently.</p>
+      <a href="/docs" class="api-link">REST API Documentation (Swagger)</a>
+    </div>
+  </div>
+
+  <script>
+    const $ = (sel) => document.querySelector(sel);
+    const $$ = (sel) => document.querySelectorAll(sel);
+
+    const dropzone = $('#dropzone');
+    const fileInput = $('#fileInput');
+    const submitBtn = $('#submitBtn');
+    const uploadSection = $('#uploadSection');
+    const progressSection = $('#progressSection');
+    const resultSection = $('#resultSection');
+    const batchResultSection = $('#batchResultSection');
+    const errorSection = $('#errorSection');
+
+    let selectedFiles = [];
+    let currentTaskId = null;
+    let isBatchMode = false;
+
+    // Show SI file names when selected
+    $('#siFileInput').addEventListener('change', function() {
+      const names = Array.from(this.files).map(f => f.name);
+      $('#siFileNames').textContent = names.length ? names.join(', ') : '';
+    });
+
+    // --- Drag & drop ---
+    ['dragenter', 'dragover'].forEach(e =>
+      dropzone.addEventListener(e, (ev) => { ev.preventDefault(); dropzone.classList.add('dragover'); })
+    );
+    ['dragleave', 'drop'].forEach(e =>
+      dropzone.addEventListener(e, (ev) => { ev.preventDefault(); dropzone.classList.remove('dragover'); })
+    );
+    dropzone.addEventListener('drop', (ev) => {
+      const files = Array.from(ev.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.pdf'));
+      if (files.length) addFiles(files);
+    });
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files.length) addFiles(Array.from(fileInput.files));
+    });
+
+    function addFiles(files) {
+      const existing = new Set(selectedFiles.map(f => f.name + f.size));
+      for (const f of files) {
+        if (!existing.has(f.name + f.size)) {
+          selectedFiles.push(f);
+        }
+      }
+      renderFileList();
+      submitBtn.disabled = selectedFiles.length === 0;
+    }
+
+    function removeFile(idx) {
+      selectedFiles.splice(idx, 1);
+      renderFileList();
+      submitBtn.disabled = selectedFiles.length === 0;
+    }
+
+    function renderFileList() {
+      if (selectedFiles.length === 0) {
+        dropzone.classList.remove('has-files');
+        dropzone.innerHTML = `
+          <input type="file" id="fileInput" accept=".pdf" multiple>
+          <div class="dropzone-icon">&#128196;</div>
+          <div class="dropzone-label">Drop article PDF(s) here or <strong>click to browse</strong><br>
+          <span style="font-size:12px">Supports multiple files for batch processing</span></div>
+        `;
+        dropzone.querySelector('#fileInput').addEventListener('change', function() {
+          if (this.files.length) addFiles(Array.from(this.files));
+        });
+        return;
+      }
+
+      dropzone.classList.add('has-files');
+      let html = `<input type="file" id="fileInput" accept=".pdf" multiple><ul class="file-list">`;
+      selectedFiles.forEach((f, i) => {
+        html += `<li class="file-item">
+          <div class="file-icon">&#128196;</div>
+          <div class="file-details">
+            <div class="file-name">${f.name}</div>
+            <div class="file-size">${(f.size / 1024 / 1024).toFixed(1)} MB</div>
+          </div>
+          <button class="remove-btn" data-idx="${i}">&times;</button>
+        </li>`;
+      });
+      html += `</ul><div class="file-count">${selectedFiles.length} file${selectedFiles.length > 1 ? 's' : ''} selected</div>`;
+      dropzone.innerHTML = html;
+
+      dropzone.querySelector('#fileInput').addEventListener('change', function() {
+        if (this.files.length) addFiles(Array.from(this.files));
+      });
+      dropzone.querySelectorAll('.remove-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => { e.stopPropagation(); removeFile(parseInt(btn.dataset.idx)); });
+      });
+    }
+
+    // --- Submit ---
+    submitBtn.addEventListener('click', startMerge);
+
+    async function startMerge() {
+      if (selectedFiles.length === 0) return;
+
+      isBatchMode = selectedFiles.length > 1;
+      showSection('progress');
+      resetSteps();
+
+      if (isBatchMode) {
+        $('#batchProgress').style.display = 'block';
+        $('#batchHeader').textContent = `Processing 0/${selectedFiles.length} files`;
+        $('#batchBar').style.width = '0%';
+      } else {
+        $('#batchProgress').style.display = 'none';
+      }
+
+      const formData = new FormData();
+      if (isBatchMode) {
+        selectedFiles.forEach(f => formData.append('files', f));
+        try {
+          const resp = await fetch('/api/batch', { method: 'POST', body: formData });
+          if (!resp.ok) { const err = await resp.json(); throw new Error(err.detail || 'Upload failed'); }
+          const data = await resp.json();
+          currentTaskId = data.task_id;
+          listenEvents(currentTaskId);
+        } catch (e) { showError(e.message); }
+      } else {
+        formData.append('file', selectedFiles[0]);
+        const doi = $('#doiInput').value.trim();
+        if (doi) formData.append('doi', doi);
+        const siUrls = $('#siUrlInput').value.trim();
+        if (siUrls) formData.append('si_urls', siUrls);
+        const siFileInput = $('#siFileInput');
+        if (siFileInput.files.length) {
+          Array.from(siFileInput.files).forEach(f => formData.append('si_files', f));
+        }
+        try {
+          const resp = await fetch('/api/tasks', { method: 'POST', body: formData });
+          if (!resp.ok) { const err = await resp.json(); throw new Error(err.detail || 'Upload failed'); }
+          const data = await resp.json();
+          currentTaskId = data.task_id;
+          listenEvents(currentTaskId);
+        } catch (e) { showError(e.message); }
+      }
+    }
+
+    // --- SSE Progress ---
+    function listenEvents(taskId) {
+      const source = new EventSource(`/api/tasks/${taskId}/events`);
+
+      source.addEventListener('progress', (e) => {
+        const ev = JSON.parse(e.data);
+        if (ev.status === 'batch_progress') {
+          try {
+            const bp = JSON.parse(ev.detail);
+            const done = bp.status === 'completed' || bp.status.startsWith('failed') ? bp.index + 1 : bp.index;
+            const pct = Math.round((done / bp.total) * 100);
+            $('#batchHeader').textContent = `Processing ${done}/${bp.total} files \u2014 ${bp.filename}`;
+            $('#batchBar').style.width = pct + '%';
+            if (bp.status === 'completed' || bp.status.startsWith('failed')) {
+              resetSteps();
+            }
+          } catch {}
+        } else {
+          updateStep(ev.step, ev.status, ev.detail);
+        }
+      });
+
+      source.addEventListener('complete', (e) => {
+        source.close();
+        const result = JSON.parse(e.data);
+        markAllDone();
+        if (isBatchMode) {
+          setTimeout(() => showBatchResult(result, taskId), 600);
+        } else {
+          setTimeout(() => showResult(result, taskId), 600);
+        }
+      });
+
+      source.addEventListener('error', (e) => {
+        try {
+          const ev = JSON.parse(e.data);
+          source.close();
+          showError(ev.error || 'Unknown error');
+        } catch {
+          if (source.readyState === EventSource.CLOSED) return;
+          source.close();
+          showError('Connection lost. Please try again.');
+        }
+      });
+    }
+
+    // --- Step UI ---
+    function resetSteps() {
+      $$('.step').forEach(s => {
+        s.classList.remove('active', 'done', 'error');
+        s.querySelector('.step-detail').textContent = 'Waiting...';
+        const indicator = s.querySelector('.step-indicator');
+        indicator.textContent = s.dataset.step;
+      });
+    }
+
+    function updateStep(step, status, detail) {
+      const stepEl = $(`.step[data-step="${step}"]`);
+      if (!stepEl) return;
+
+      const detailEl = stepEl.querySelector('.step-detail');
+      detailEl.textContent = detail;
+
+      $$('.step').forEach(s => {
+        const sn = parseInt(s.dataset.step);
+        if (sn < step) {
+          s.classList.remove('active');
+          s.classList.add('done');
+          s.querySelector('.step-indicator').textContent = '\u2713';
+        }
+      });
+
+      if (['done', 'complete', 'extracted', 'downloaded'].includes(status)) {
+        stepEl.classList.remove('active');
+        stepEl.classList.add('done');
+        stepEl.querySelector('.step-indicator').textContent = '\u2713';
+      } else if (status === 'error') {
+        stepEl.classList.add('error');
+        stepEl.querySelector('.step-indicator').textContent = '!';
+      } else {
+        stepEl.classList.add('active');
+      }
+    }
+
+    function markAllDone() {
+      $$('.step').forEach(s => {
+        s.classList.remove('active');
+        s.classList.add('done');
+        s.querySelector('.step-indicator').textContent = '\u2713';
+      });
+    }
+
+    // --- Single Result ---
+    function showResult(result, taskId) {
+      showSection('result');
+      $('#resultSubtitle').textContent = result.title || '';
+      $('#statPages').textContent = (result.article_pages || 0) + (result.si_pages || 0);
+      $('#statForward').textContent = result.forward_links || 0;
+      $('#statBack').textContent = result.back_links || 0;
+      $('#downloadBtn').href = `/api/tasks/${taskId}/download`;
+    }
+
+    // --- Batch Result ---
+    function showBatchResult(result, taskId) {
+      showSection('batchResult');
+      $('#batchResultSubtitle').textContent =
+        `${result.succeeded} of ${result.total} articles merged successfully`;
+      $('#bstatTotal').textContent = result.total;
+      $('#bstatOk').textContent = result.succeeded;
+      $('#bstatFail').textContent = result.failed;
+
+      const list = $('#batchFileList');
+      list.innerHTML = '';
+      (result.files || []).forEach(f => {
+        const row = document.createElement('div');
+        row.className = 'br-row';
+        if (f.status === 'completed') {
+          row.innerHTML = `
+            <div class="br-status">&#9989;</div>
+            <div class="br-info">
+              <div class="br-name">${f.filename}</div>
+              <div class="br-meta">${f.article_pages}+${f.si_pages} pages &middot; ${f.forward_links} fwd / ${f.back_links} back links</div>
+            </div>
+            <a class="br-download" href="/api/tasks/${taskId}/download/${f.index}">Download</a>
+          `;
+        } else {
+          row.innerHTML = `
+            <div class="br-status">&#10060;</div>
+            <div class="br-info">
+              <div class="br-name">${f.filename}</div>
+              <div class="br-error">${f.error || 'Unknown error'}</div>
+            </div>
+          `;
+        }
+        list.appendChild(row);
+      });
+    }
+
+    // --- Error ---
+    const BLOCK_KEYWORDS = ['403', 'blocked', 'cloudflare', 'no supplementary',
+      'no downloadable', 'failed to download', 'could not resolve'];
+
+    function showError(msg) {
+      showSection('error');
+      $('#errorMessage').textContent = msg;
+
+      const hint = $('#errorHint');
+      const isBlocked = BLOCK_KEYWORDS.some(kw => msg.toLowerCase().includes(kw));
+      hint.style.display = isBlocked ? 'block' : 'none';
+      $('#retryBtn').textContent = isBlocked ? 'Try again with manual SI' : 'Try again';
+    }
+
+    // --- Section visibility ---
+    function showSection(name) {
+      uploadSection.style.display = name === 'upload' ? '' : 'none';
+      progressSection.classList.toggle('active', name === 'progress');
+      resultSection.classList.toggle('active', name === 'result');
+      batchResultSection.classList.toggle('active', name === 'batchResult');
+      errorSection.classList.toggle('active', name === 'error');
+    }
+
+    // --- Restart / retry ---
+    $('#restartBtn').addEventListener('click', restart);
+    $('#batchRestartBtn').addEventListener('click', restart);
+    $('#retryBtn').addEventListener('click', restart);
+
+    function restart() {
+      currentTaskId = null;
+      selectedFiles = [];
+      renderFileList();
+      $('#siUrlInput').value = '';
+      $('#siFileInput').value = '';
+      $('#siFileNames').textContent = '';
+      showSection('upload');
+    }
+  </script>
+</body>
+</html>

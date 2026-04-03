@@ -1,0 +1,11 @@
+venv/
+__pycache__/
+*.pyc
+.git/
+.gitignore
+test pdf/
+*.pdf
+.env
+.DS_Store
+docker-compose.yml
+fly.toml

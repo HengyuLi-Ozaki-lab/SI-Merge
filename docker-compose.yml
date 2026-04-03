@@ -1,0 +1,9 @@
+services:
+  si-merge:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - SI_MERGE_MAX_UPLOAD_MB=50
+      - SI_MERGE_TASK_TTL=3600
+    restart: unless-stopped
