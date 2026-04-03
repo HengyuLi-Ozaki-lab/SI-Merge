@@ -7,3 +7,5 @@ __pycache__/
 test pdf/
 *.pdf
 !static/**
+extension.crx
+extension.pem

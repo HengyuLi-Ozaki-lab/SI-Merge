@@ -2,10 +2,9 @@
  * SI Merge Background Service Worker
  *
  * Orchestrates the merge workflow:
- * 1. Tries to fetch article PDF from the publisher (using extension host_permissions)
- * 2. Uploads to backend, or falls back to DOI-based backend merge
- * 3. Monitors SSE progress and forwards to content script / popup
- * 4. Triggers download of merged PDF on completion
+ * 1. Receives PDF data from content script (fetched in page context with user's cookies)
+ * 2. Or falls back to service-worker fetch / DOI-based backend merge
+ * 3. Uploads to backend, monitors SSE progress, triggers download
  */
 
 const DEFAULT_BACKEND = 'https://si-merge.onrender.com';
@@ -56,7 +55,7 @@ async function fetchPdfFromPublisher(pdfUrl, articleUrl) {
   }
 }
 
-async function uploadPdfToBackend(pdfBlob, doi, tabId) {
+async function uploadPdfToBackend(pdfBlob, doi) {
   const base = await getBackendUrl();
   const form = new FormData();
   form.append('file', pdfBlob, 'article.pdf');
@@ -128,27 +127,35 @@ function listenProgress(taskId, tabId) {
 }
 
 async function handleMerge(payload, tabId) {
-  const { doi, pdfUrl, articleUrl, title } = payload;
+  const { doi, pdfUrl, articleUrl, title, pdfData } = payload;
 
   try {
-    // Strategy A: fetch PDF from publisher using extension permissions
-    broadcastProgress(tabId, 1, 'started', 'Downloading article PDF...');
-    const pdfBlob = await fetchPdfFromPublisher(pdfUrl, articleUrl);
-
     let task;
-    if (pdfBlob) {
-      broadcastProgress(tabId, 1, 'done', `PDF downloaded (${Math.round(pdfBlob.size / 1024)} KB)`);
-      task = await uploadPdfToBackend(pdfBlob, doi, tabId);
+
+    // Strategy A: PDF already downloaded by content script (page context)
+    if (pdfData && pdfData.length > 0) {
+      broadcastProgress(tabId, 1, 'done', `PDF ready (${Math.round(pdfData.length / 1024)} KB)`);
+      const blob = new Blob([new Uint8Array(pdfData)], { type: 'application/pdf' });
+      broadcastProgress(tabId, 1, 'uploading', 'Uploading to server...');
+      task = await uploadPdfToBackend(blob, doi);
     } else {
-      // Strategy B: let backend download via DOI
-      broadcastProgress(tabId, 1, 'searching', 'Browser download failed, trying server-side...');
-      task = await mergeByDoi(doi);
+      // Strategy B: try service worker fetch (works for some publishers)
+      broadcastProgress(tabId, 1, 'started', 'Downloading article PDF...');
+      const pdfBlob = await fetchPdfFromPublisher(pdfUrl, articleUrl);
+
+      if (pdfBlob) {
+        broadcastProgress(tabId, 1, 'done', `PDF downloaded (${Math.round(pdfBlob.size / 1024)} KB)`);
+        task = await uploadPdfToBackend(pdfBlob, doi);
+      } else {
+        // Strategy C: let backend download via DOI (open-access only)
+        broadcastProgress(tabId, 1, 'searching', 'Using server-side download...');
+        task = await mergeByDoi(doi);
+      }
     }
 
     const taskId = task.task_id;
     const result = await listenProgress(taskId, tabId);
 
-    // Trigger download
     const base = await getBackendUrl();
     const downloadUrl = `${base}/api/tasks/${taskId}/download`;
     const filename = title
@@ -167,7 +174,6 @@ async function handleMerge(payload, tabId) {
   }
 }
 
-// Listen for messages from content script and popup
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'START_MERGE') {
     const tabId = sender.tab ? sender.tab.id : msg.tabId;
@@ -178,7 +184,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
 
   if (msg.type === 'START_MERGE_BY_DOI') {
     const tabId = msg.tabId || 0;
-    handleMerge({ doi: msg.doi, pdfUrl: null, articleUrl: null, title: null }, tabId);
+    handleMerge({ doi: msg.doi, pdfUrl: null, articleUrl: null, title: null, pdfData: null }, tabId);
     sendResponse({ ok: true });
     return true;
   }
@@ -191,7 +197,6 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
-// Update extension badge on article pages
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.status !== 'complete' || !tab.url) return;
 
