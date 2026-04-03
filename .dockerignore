@@ -9,3 +9,4 @@ test pdf/
 .DS_Store
 docker-compose.yml
 fly.toml
+extension/

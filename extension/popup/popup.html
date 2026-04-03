@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="header">
+    <img src="../icons/icon48.png" alt="SI Merge">
+    <div class="header-text">
+      <h1>SI Merge</h1>
+      <p>Merge Supplementary Information into PDFs</p>
+    </div>
+  </div>
+
+  <!-- Detected article -->
+  <div class="article-info" id="articleInfo" style="display:none">
+    <div class="article-title" id="articleTitle"></div>
+    <div class="article-meta">
+      <span class="publisher-badge" id="publisherBadge"></span>
+      <span class="doi" id="articleDoi"></span>
+    </div>
+  </div>
+
+  <!-- No article detected -->
+  <div class="no-article" id="noArticle" style="display:none">
+    <p>No article detected on this page. Enter a DOI manually:</p>
+    <input type="text" id="manualDoi" placeholder="10.1038/s41467-023-44674-1">
+  </div>
+
+  <!-- Actions -->
+  <div class="actions" id="actionsArea">
+    <button class="merge-btn" id="mergeBtn" disabled>Merge with SI</button>
+  </div>
+
+  <!-- Progress -->
+  <div class="progress-area" id="progressArea">
+    <ul class="step-list" id="stepList">
+      <li class="step-item" data-step="1"><span class="step-dot">1</span> Extract DOI</li>
+      <li class="step-item" data-step="2"><span class="step-dot">2</span> Find SI Files</li>
+      <li class="step-item" data-step="3"><span class="step-dot">3</span> Download SI</li>
+      <li class="step-item" data-step="4"><span class="step-dot">4</span> Extract Text</li>
+      <li class="step-item" data-step="5"><span class="step-dot">5</span> Analyze References</li>
+      <li class="step-item" data-step="6"><span class="step-dot">6</span> Merge &amp; Link</li>
+    </ul>
+    <div class="step-detail" id="stepDetail"></div>
+  </div>
+
+  <!-- Result -->
+  <div class="result-area" id="resultArea">
+    <div class="result-icon">&#9989;</div>
+    <div class="result-msg">Merge complete! PDF is downloading.</div>
+  </div>
+
+  <!-- Error -->
+  <div class="error-area" id="errorArea">
+    <div class="error-msg" id="errorMsg"></div>
+  </div>
+
+  <!-- Settings -->
+  <div class="settings-area">
+    <button class="settings-toggle" id="settingsToggle">Settings</button>
+    <div class="settings-body" id="settingsBody">
+      <label for="backendUrlInput">Backend URL</label>
+      <input type="text" id="backendUrlInput" placeholder="https://si-merge.onrender.com">
+      <div class="hint">Change if you're running your own SI Merge server.</div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

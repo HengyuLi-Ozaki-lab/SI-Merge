@@ -1,0 +1,60 @@
+{
+  "manifest_version": 3,
+  "name": "SI Merge",
+  "version": "1.0.0",
+  "description": "Merge Supplementary Information into journal article PDFs with one click. Adds cross-reference links between the article and SI.",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "permissions": [
+    "activeTab",
+    "storage",
+    "downloads"
+  ],
+  "host_permissions": [
+    "https://si-merge.onrender.com/*",
+    "https://*.nature.com/*",
+    "https://*.springer.com/*",
+    "https://*.acs.org/*",
+    "https://*.wiley.com/*",
+    "https://*.elsevier.com/*",
+    "https://*.sciencedirect.com/*",
+    "https://*.science.org/*",
+    "https://*.pnas.org/*",
+    "https://*.rsc.org/*",
+    "https://*.aps.org/*",
+    "https://doi.org/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js"
+  },
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.nature.com/articles/*",
+        "https://*.springer.com/article/*",
+        "https://link.springer.com/article/*",
+        "https://pubs.acs.org/doi/*",
+        "https://*.wiley.com/doi/*",
+        "https://*.sciencedirect.com/science/article/*",
+        "https://linkinghub.elsevier.com/retrieve/*",
+        "https://*.science.org/doi/*",
+        "https://*.pnas.org/doi/*",
+        "https://pubs.rsc.org/*",
+        "https://journals.aps.org/*"
+      ],
+      "js": ["utils/publishers.js", "content/content.js"],
+      "css": ["content/content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

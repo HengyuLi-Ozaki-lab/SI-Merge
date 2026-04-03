@@ -27,7 +27,9 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from sse_starlette.sse import EventSourceResponse
 
-from si_merge import MergeResult, run_batch_merge, run_merge
+from pydantic import BaseModel
+
+from si_merge import MergeResult, download_article_pdf, run_batch_merge, run_merge
 
 logger = logging.getLogger("si_merge")
 
@@ -477,3 +479,65 @@ async def merge_sync(
         filename=f"{original_stem}_with_SI.pdf",
         background=None,
     )
+
+
+# ---------------------------------------------------------------------------
+# DOI-based merge (for browser extension)
+# ---------------------------------------------------------------------------
+
+class MergeByDoiRequest(BaseModel):
+    doi: str
+    si_urls: list[str] | None = None
+
+
+def _process_doi_task(task_id: str, doi: str, si_urls: list[str] | None):
+    """Download article PDF by DOI, then run the merge workflow."""
+    task = store.get(task_id)
+    if not task:
+        return
+
+    task["status"] = TaskStatus.RUNNING
+    work_dir = task["work_dir"]
+    output_path = os.path.join(work_dir, "merged_output.pdf")
+
+    def on_progress(step: int, status: str, detail: str = ""):
+        store.push_event(task_id, step, status, detail)
+
+    try:
+        pdf_path, article_url = download_article_pdf(doi, work_dir, on_progress)
+        result = run_merge(
+            pdf_path=pdf_path,
+            output_path=output_path,
+            doi_override=doi,
+            on_progress=on_progress,
+            si_urls=si_urls or None,
+        )
+        store.set_complete(task_id, result)
+    except Exception as e:
+        store.set_failed(task_id, str(e))
+        store.push_event(task_id, 0, "error", str(e))
+
+
+@app.post("/api/merge-by-doi")
+async def merge_by_doi(body: MergeByDoiRequest):
+    """
+    Start a merge task given a DOI. The backend downloads the article PDF,
+    finds SI, and merges. Returns a task_id for tracking progress via SSE.
+
+    Designed for the browser extension where the user doesn't upload a file.
+    """
+    doi = body.doi.strip()
+    if not doi:
+        raise HTTPException(400, "DOI is required.")
+
+    task_id = uuid.uuid4().hex[:12]
+    task = store.create(task_id, f"doi:{doi}")
+
+    thread = Thread(
+        target=_process_doi_task,
+        args=(task_id, doi, body.si_urls),
+        daemon=True,
+    )
+    thread.start()
+
+    return {"task_id": task_id, "status": "pending", "doi": doi}

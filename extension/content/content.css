@@ -1,0 +1,95 @@
+#si-merge-fab {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 18px;
+  background: #4f6ef7;
+  color: #fff;
+  border: none;
+  border-radius: 40px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(79, 110, 247, 0.4);
+  transition: all 0.25s ease;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+#si-merge-fab:hover {
+  background: #3b5de7;
+  box-shadow: 0 6px 20px rgba(79, 110, 247, 0.55);
+  transform: translateY(-1px);
+}
+
+#si-merge-fab.si-merge-processing {
+  background: #5a607f;
+  cursor: default;
+  pointer-events: none;
+}
+
+#si-merge-fab.si-merge-success {
+  background: #10b981;
+}
+
+#si-merge-fab.si-merge-error {
+  background: #ef4444;
+  cursor: pointer;
+  pointer-events: auto;
+}
+
+#si-merge-fab .si-merge-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+#si-merge-fab .si-merge-label {
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Spinner for processing state */
+#si-merge-fab .si-merge-spinner {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  border-radius: 50%;
+  animation: si-merge-spin 0.8s linear infinite;
+}
+
+@keyframes si-merge-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Minimal toast for progress details */
+#si-merge-toast {
+  position: fixed;
+  bottom: 76px;
+  right: 24px;
+  z-index: 2147483647;
+  background: #1a1f36;
+  color: #e2e6ed;
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 320px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  opacity: 0;
+  transform: translateY(8px);
+  transition: all 0.3s ease;
+  pointer-events: none;
+}
+
+#si-merge-toast.visible {
+  opacity: 1;
+  transform: translateY(0);
+}

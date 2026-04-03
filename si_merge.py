@@ -201,6 +201,99 @@ def get_article_pdf_url(doi: str) -> str | None:
 
 
 # ---------------------------------------------------------------------------
+# Article PDF Download (for browser extension / DOI-based merge)
+# ---------------------------------------------------------------------------
+
+_PDF_URL_PATTERNS: dict[str, str] = {
+    "nature.com":       "{article_url}.pdf",
+    "springer.com":     "{article_url}.pdf",
+    "pubs.acs.org":     "https://pubs.acs.org/doi/pdf/{doi}",
+    "onlinelibrary.wiley.com": "https://onlinelibrary.wiley.com/doi/pdfdirect/{doi}",
+    "science.org":      "https://www.science.org/doi/pdf/{doi}",
+    "pnas.org":         "https://www.pnas.org/doi/pdf/{doi}",
+}
+
+
+def download_article_pdf(
+    doi: str,
+    work_dir: str,
+    on_progress: ProgressCallback = _noop_progress,
+) -> tuple[str, str]:
+    """
+    Download the main article PDF given a DOI.
+
+    Returns (pdf_path, article_url).
+    Raises RuntimeError if the PDF cannot be obtained.
+    """
+    on_progress(1, "started", f"Resolving DOI: {doi}")
+    article_url = resolve_article_url(doi)
+    if not article_url:
+        raise RuntimeError(f"Could not resolve DOI {doi} to an article URL.")
+    on_progress(1, "searching", f"Article: {article_url}")
+
+    pdf_url = None
+
+    # Strategy 1: citation_pdf_url meta tag
+    try:
+        resp = _http_get(article_url, timeout=20)
+        if resp.status_code == 200:
+            soup = BeautifulSoup(resp.text, "html.parser")
+            meta = soup.find("meta", attrs={"name": "citation_pdf_url"})
+            if meta and meta.get("content"):
+                pdf_url = meta["content"]
+    except Exception:
+        pass
+
+    # Strategy 2: publisher-specific URL patterns
+    if not pdf_url:
+        domain = urllib.parse.urlparse(article_url).netloc
+        for pub_domain, pattern in _PDF_URL_PATTERNS.items():
+            if pub_domain in domain:
+                pdf_url = pattern.format(article_url=article_url.rstrip("/"), doi=doi)
+                break
+
+    # Strategy 3: CrossRef link
+    if not pdf_url:
+        pdf_url = get_article_pdf_url(doi)
+
+    if not pdf_url:
+        raise RuntimeError(
+            f"Could not find a PDF download link for DOI {doi}. "
+            "The article may require institutional access."
+        )
+
+    on_progress(1, "downloading", f"Downloading article PDF...")
+    try:
+        resp = _http_get(pdf_url, timeout=60, allow_redirects=True)
+    except Exception as e:
+        raise RuntimeError(f"Failed to download article PDF: {e}")
+
+    if resp.status_code == 403:
+        raise RuntimeError(
+            "Publisher blocked the PDF download (HTTP 403). "
+            "The article likely requires institutional access. "
+            "Please download the PDF manually and use the web app."
+        )
+    if resp.status_code != 200:
+        raise RuntimeError(f"PDF download failed with status {resp.status_code}.")
+
+    content = resp.content
+    if not content[:5].startswith(b"%PDF"):
+        ctype = resp.headers.get("content-type", "")
+        if "html" in ctype.lower():
+            raise RuntimeError(
+                "Received an HTML page instead of a PDF. "
+                "The article likely requires institutional access."
+            )
+
+    pdf_path = os.path.join(work_dir, "article.pdf")
+    with open(pdf_path, "wb") as f:
+        f.write(content)
+    on_progress(1, "done", f"Article PDF downloaded ({len(content) // 1024} KB)")
+    return pdf_path, article_url
+
+
+# ---------------------------------------------------------------------------
 # SI Discovery — publisher-specific scrapers
 # ---------------------------------------------------------------------------
 
