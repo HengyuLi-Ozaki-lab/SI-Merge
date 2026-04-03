@@ -43,6 +43,16 @@ The result is a single, self-contained PDF where every SI reference is a clickab
 
 ## Quick Start
 
+### Chrome Extension (one-click merge from article pages)
+
+1. Open `chrome://extensions` in Chrome
+2. Enable **Developer mode** (top-right toggle)
+3. Click **Load unpacked** and select the `extension/` folder from this repo
+4. Navigate to any supported publisher's article page (Nature, ACS, Wiley, etc.)
+5. Click the floating **"Merge SI"** button that appears, or use the extension popup
+
+The extension detects the article DOI automatically, downloads the PDF (using your institutional access), merges SI via the backend, and downloads the result.
+
 ### Web App
 
 ```bash
@@ -141,6 +151,26 @@ print(f"{batch.succeeded}/{batch.total} succeeded")
 └──────────────────────────────────────────────────────────┘
 ```
 
+## Browser Extension
+
+The Chrome extension lets you merge SI directly from any publisher's article page with one click.
+
+**How it works:**
+1. When you visit an article page, the extension detects the DOI from page metadata
+2. A floating "Merge SI" button appears in the bottom-right corner
+3. Click it, and the extension downloads the article PDF (using your browser session, so institutional access works), sends it to the SI Merge backend, and downloads the merged result
+
+**Features:**
+- Auto-detects DOI and PDF URL via `citation_doi` / `citation_pdf_url` meta tags
+- Hybrid download strategy: browser-side fetch (works with paywalled articles) with server-side fallback
+- Popup UI with manual DOI input for pages not auto-detected
+- Configurable backend URL (default: public instance, or self-hosted)
+- Real-time 6-step progress in both the popup and the floating button
+
+**Supported article pages:** Nature, Springer, ACS, Wiley, Elsevier/ScienceDirect, Science, PNAS, RSC, APS
+
+> **Safari support:** The extension uses the standard WebExtension API and can be converted to a Safari extension using `xcrun safari-web-extension-converter extension/` (requires Xcode).
+
 ## Web App Features
 
 - **Drag & drop** single or multiple PDFs
@@ -162,6 +192,7 @@ print(f"{batch.succeeded}/{batch.total} succeeded")
 | `GET` | `/api/tasks/{id}/download` | Download merged PDF |
 | `GET` | `/api/tasks/{id}/download/{idx}` | Download file from batch |
 | `POST` | `/api/merge` | Synchronous merge (upload → merged PDF) |
+| `POST` | `/api/merge-by-doi` | Merge by DOI (backend downloads article PDF) |
 
 Full interactive docs: `http://localhost:8000/docs`
 
