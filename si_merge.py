@@ -144,6 +144,15 @@ class SIAnchor:
 # ---------------------------------------------------------------------------
 
 DOI_RE = re.compile(r'10\.\d{4,9}/[^\s,;\"\'>\]}{)]+', re.IGNORECASE)
+# Matches DOIs split across lines: "10.1126/\nsciadv.abj5505" or "10.1126/ sciadv.abj5505"
+DOI_SPLIT_RE = re.compile(r'(10\.\d{4,9})/\s+(\S+)', re.IGNORECASE)
+
+
+def _clean_doi(raw: str) -> str:
+    """Strip trailing junk that is not part of a DOI."""
+    doi = raw.split("&")[0]  # remove URL query params like &ref=pdf
+    doi = doi.split("#")[0]  # remove URL fragments
+    return doi.rstrip(".),")
 
 
 def extract_doi_from_metadata(doc: fitz.Document) -> str | None:
@@ -153,23 +162,53 @@ def extract_doi_from_metadata(doc: fitz.Document) -> str | None:
         val = meta.get(key, "") or ""
         m = DOI_RE.search(val)
         if m:
-            return m.group(0).rstrip(".")
+            return _clean_doi(m.group(0))
     return None
 
 
-def extract_doi_from_text(doc: fitz.Document, max_pages: int = 3) -> str | None:
-    """Try to extract DOI from PDF text content."""
-    for i in range(min(max_pages, len(doc))):
+def extract_doi_from_links(doc: fitz.Document) -> str | None:
+    """Try to extract DOI from PDF hyperlink annotations (e.g. doi.org links)."""
+    for i in range(min(5, len(doc))):
+        for link in doc[i].get_links():
+            uri = link.get("uri", "")
+            if uri:
+                m = DOI_RE.search(uri)
+                if m:
+                    return _clean_doi(m.group(0))
+    return None
+
+
+def extract_doi_from_text(doc: fitz.Document, max_pages: int = 5) -> str | None:
+    """Try to extract DOI from PDF text content.
+
+    Searches the first `max_pages` pages AND the last 2 pages (many publishers
+    put the DOI at the end of the article).  Also handles DOIs split across
+    line breaks such as '10.1126/\\nsciadv.abj5505'.
+    """
+    pages_to_check: list[int] = []
+    pages_to_check.extend(range(min(max_pages, len(doc))))
+    for offset in (1, 2):
+        idx = len(doc) - offset
+        if idx >= 0 and idx not in pages_to_check:
+            pages_to_check.append(idx)
+
+    for i in pages_to_check:
         text = doc[i].get_text()
-        if text.strip():
-            m = DOI_RE.search(text)
-            if m:
-                return m.group(0).rstrip(".")
+        if not text.strip():
+            continue
+        m = DOI_RE.search(text)
+        if m:
+            return _clean_doi(m.group(0))
+        m2 = DOI_SPLIT_RE.search(text)
+        if m2:
+            return _clean_doi(f"{m2.group(1)}/{m2.group(2)}")
     return None
 
 
 def extract_doi(doc: fitz.Document) -> str | None:
-    return extract_doi_from_metadata(doc) or extract_doi_from_text(doc)
+    return (extract_doi_from_metadata(doc)
+            or extract_doi_from_links(doc)
+            or extract_doi_from_text(doc))
 
 
 # ---------------------------------------------------------------------------
