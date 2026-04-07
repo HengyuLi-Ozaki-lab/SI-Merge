@@ -1154,9 +1154,9 @@ def run_merge(
         base = Path(pdf_path).stem
         output_path = str(Path(pdf_path).parent / f"{base}_with_SI.pdf")
 
-    # Reset HTTP session for fresh cookies per merge task
+    # Reset HTTP sessions for fresh cookies per merge task
     global _session
-    _session = None
+    _session = {}
 
     # Step 1: Extract DOI
     on_progress(1, "started", "Extracting DOI from PDF")
