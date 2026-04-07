@@ -120,18 +120,54 @@ const Publishers = (() => {
     return h1 ? h1.textContent.trim() : document.title;
   }
 
+  function extractSiUrls() {
+    const results = [];
+    const seen = new Set();
+    const origin = window.location.origin;
+
+    // Science / PNAS: look in core-supplementary-materials section
+    const suppSection = document.querySelector('section.core-supplementary-materials, section.core-supplementary-material');
+    if (suppSection) {
+      for (const a of suppSection.querySelectorAll('a[href]')) {
+        const href = a.getAttribute('href') || '';
+        if (href.includes('suppl_file') || href.endsWith('.pdf')) {
+          const full = href.startsWith('http') ? href : new URL(href, origin).href;
+          if (!seen.has(full)) { seen.add(full); results.push(full); }
+        }
+      }
+    }
+
+    // Generic: links with /doi/suppl/ and suppl_file
+    for (const a of document.querySelectorAll('a[href*="suppl_file"], a[href*="downloadSupplement"], a[download][href$=".pdf"]')) {
+      const href = a.getAttribute('href') || '';
+      if (!href) continue;
+      const full = href.startsWith('http') ? href : new URL(href, origin).href;
+      if (!seen.has(full)) { seen.add(full); results.push(full); }
+    }
+
+    // Nature/Springer: MOESM links
+    for (const a of document.querySelectorAll('a[href*="/MOESM"], a[href*="/moesm"]')) {
+      const href = a.getAttribute('href') || '';
+      const full = href.startsWith('http') ? href : new URL(href, origin).href;
+      if (!seen.has(full)) { seen.add(full); results.push(full); }
+    }
+
+    return results;
+  }
+
   function extractMetadata() {
     const url = window.location.href;
     return {
       doi: extractDoi(),
       pdfUrl: extractPdfUrl(),
+      siUrls: extractSiUrls(),
       title: extractTitle(),
       publisher: detectPublisher(url),
       articleUrl: url,
     };
   }
 
-  return { detectPublisher, extractDoi, extractPdfUrl, extractTitle, extractMetadata };
+  return { detectPublisher, extractDoi, extractPdfUrl, extractSiUrls, extractTitle, extractMetadata };
 })();
 
 if (typeof globalThis !== 'undefined') {

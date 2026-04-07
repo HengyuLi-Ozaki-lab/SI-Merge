@@ -77,6 +77,7 @@ async function startMerge() {
       payload: {
         doi: currentMeta.doi,
         pdfUrl: currentMeta.pdfUrl,
+        siUrls: currentMeta.siUrls || [],
         articleUrl: currentMeta.articleUrl,
         title: currentMeta.title,
       },

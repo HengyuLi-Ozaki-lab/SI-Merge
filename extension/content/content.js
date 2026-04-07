@@ -85,6 +85,7 @@
         payload: {
           doi: meta.doi,
           pdfUrl: meta.pdfUrl,
+          siUrls: meta.siUrls || [],
           articleUrl: meta.articleUrl,
           title: meta.title,
         },

@@ -44,23 +44,26 @@ def _noop_progress(step: int, status: str, detail: str = "") -> None:
 # HTTP client — curl_cffi (bypasses Cloudflare) with requests fallback
 # ---------------------------------------------------------------------------
 
-_session = None
+_session: dict[str, object] = {}
+
+_IMPERSONATE_PROFILES = ("chrome", "safari15_5")
 
 
-def _get_session():
+def _get_session(profile: str = "chrome"):
     """Lazily create a persistent session for cookie/referer handling."""
-    global _session
-    if _session is not None:
-        return _session
+    if profile in _session:
+        return _session[profile]
     try:
         from curl_cffi import requests as cffi_requests
-        _session = cffi_requests.Session()
-        _session._impersonate = "chrome"
-        return _session
+        sess = cffi_requests.Session()
+        sess._impersonate = profile
+        _session[profile] = sess
+        return sess
     except ImportError:
-        _session = requests.Session()
-        _session.headers.update({"User-Agent": USER_AGENT})
-        return _session
+        sess = requests.Session()
+        sess.headers.update({"User-Agent": USER_AGENT})
+        _session[profile] = sess
+        return sess
 
 
 def _http_get(url: str, *, timeout: int = 30, allow_redirects: bool = True,
@@ -68,23 +71,41 @@ def _http_get(url: str, *, timeout: int = 30, allow_redirects: bool = True,
     """
     GET with browser-like TLS fingerprint via curl_cffi.
     Uses a persistent session to carry cookies across requests (needed for Wiley etc.).
+    When the primary profile (Chrome) is blocked (403), automatically retries with
+    alternative profiles (Safari) before giving up.
     Falls back to plain requests if curl_cffi is unavailable.
     """
-    session = _get_session()
     hdrs = dict(headers or {})
     if referer:
         hdrs["Referer"] = referer
 
     try:
         from curl_cffi import requests as cffi_requests
-        if isinstance(session, cffi_requests.Session):
-            return session.get(
-                url, impersonate="chrome", timeout=timeout,
-                allow_redirects=allow_redirects, headers=hdrs or None,
-            )
+
+        last_exc = None
+        for profile in _IMPERSONATE_PROFILES:
+            session = _get_session(profile)
+            if not isinstance(session, cffi_requests.Session):
+                break
+            try:
+                resp = session.get(
+                    url, impersonate=profile, timeout=timeout,
+                    allow_redirects=allow_redirects, headers=hdrs or None,
+                )
+                if resp.status_code != 403 or profile == _IMPERSONATE_PROFILES[-1]:
+                    return resp
+            except Exception as e:
+                last_exc = e
+                if profile == _IMPERSONATE_PROFILES[-1]:
+                    raise
+        else:
+            if last_exc:
+                raise last_exc
+            return resp  # type: ignore[possibly-undefined]
     except ImportError:
         pass
 
+    session = _get_session("chrome")
     if hdrs:
         session.headers.update(hdrs)
     return session.get(url, timeout=timeout, allow_redirects=allow_redirects)
@@ -508,6 +529,41 @@ def _fallback_si_discovery(article_url: str, on_progress: ProgressCallback) -> l
     """Try publisher-specific URL patterns when page scraping is blocked."""
     domain = urllib.parse.urlparse(article_url).netloc
 
+    # Science / Science Advances / PNAS (Atypon platform)
+    if "science.org" in domain or "pnas.org" in domain:
+        doi_match = re.search(r'(10\.\d{4,}/\S+?)(?:[#?]|$)', article_url)
+        if doi_match:
+            doi = doi_match.group(1).rstrip("/")
+            on_progress(2, "fallback", "Constructing Science/PNAS SI URL from DOI pattern")
+            article_id = doi.split("/")[-1]
+            journal_prefix = ""
+            if "sciadv." in article_id or "science." in article_id:
+                journal_prefix = article_id.split(".")[0] + "."
+            slug = article_id if journal_prefix else article_id
+
+            candidates = []
+            for pattern in [
+                f"{slug}_sm.pdf", f"{slug}_SM.pdf",
+                f"{slug}-sm.pdf", f"{slug}-SM.pdf",
+            ]:
+                candidates.append(
+                    f"https://www.{'science.org' if 'science.org' in domain else 'pnas.org'}"
+                    f"/doi/suppl/{doi}/suppl_file/{pattern}"
+                )
+
+            for url in candidates:
+                try:
+                    resp = _http_get(url, timeout=15)
+                    if _is_valid_file_response(resp, ".pdf"):
+                        return [SIFile(url=url, label="Supplementary Materials")]
+                except Exception:
+                    continue
+
+            base_url = f"https://www.{'science.org' if 'science.org' in domain else 'pnas.org'}/doi/suppl/{doi}/suppl_file/"
+            on_progress(2, "info",
+                        f"SI likely exists but is protected by Cloudflare. "
+                        f"Try the Chrome extension or manually download from the article page.")
+
     # APS: supplemental material at /journal/supplemental/DOI
     if "aps.org" in domain:
         on_progress(2, "fallback", "Trying APS supplemental URL pattern")
@@ -624,6 +680,16 @@ def _convert_to_pdf(input_path: str, output_path: str) -> bool:
     return False
 
 
+def _is_valid_file_response(resp, expected_ext: str) -> bool:
+    """Check if an HTTP response actually contains the expected file, not HTML."""
+    content_type = resp.headers.get("content-type", "").lower()
+    if "text/html" in content_type:
+        return False
+    if expected_ext == ".pdf" and not resp.content[:5].startswith(b"%PDF-"):
+        return False
+    return True
+
+
 def download_si_files(
     si_files: list[SIFile], output_dir: str,
     article_url: str = "",
@@ -640,16 +706,23 @@ def download_si_files(
             continue
 
         on_progress(3, "downloading", f"Downloading: {si.label}")
-        resp = _http_get(si.url, timeout=120, referer=article_url or None)
-        resp.raise_for_status()
-
-        content_type = resp.headers.get("content-type", "").lower()
-        if "text/html" in content_type and len(resp.content) < 50000:
-            on_progress(3, "warning", f"Download blocked for {si.label} (received HTML instead of file)")
+        try:
+            resp = _http_get(si.url, timeout=120, referer=article_url or None)
+            resp.raise_for_status()
+        except Exception as e:
+            on_progress(3, "warning", f"Download failed for {si.label}: {e}")
+            on_progress(3, "info", f"SI URL: {si.url}")
             continue
 
         if not ext:
             ext = ".pdf"
+
+        if not _is_valid_file_response(resp, ext):
+            on_progress(3, "warning",
+                        f"Download blocked for {si.label} (publisher returned HTML instead of file). "
+                        f"You can manually download the SI from: {si.url}")
+            continue
+
         raw_path = os.path.join(output_dir, f"si_{i+1}_raw{ext}")
         with open(raw_path, "wb") as f:
             f.write(resp.content)
@@ -1138,7 +1211,12 @@ def run_merge(
         on_progress(3, "started", "Downloading SI files")
         downloaded = download_si_files(filtered, work_dir, article_url=article_url, on_progress=on_progress)
         if not downloaded:
-            raise FileNotFoundError("Failed to download any SI files.")
+            si_urls_hint = ", ".join(si.url for si in filtered[:3])
+            raise FileNotFoundError(
+                f"SI files were found but could not be downloaded (publisher blocked the request). "
+                f"Use the Chrome extension for automatic download, or provide the SI manually. "
+                f"SI URL(s): {si_urls_hint}"
+            )
         on_progress(3, "done", f"Downloaded {len(downloaded)} SI file(s)")
 
     # Step 4: Extract text
