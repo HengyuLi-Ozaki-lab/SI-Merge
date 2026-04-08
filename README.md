@@ -15,10 +15,11 @@
   <a href="Dockerfile"><img src="https://img.shields.io/badge/Docker-ready-2496ED.svg?logo=docker&logoColor=white" alt="Docker"></a>
   <a href="https://si-merge.onrender.com"><img src="https://img.shields.io/badge/Demo-Live-brightgreen.svg?logo=render&logoColor=white" alt="Live Demo"></a>
   <a href="https://chrome.google.com/webstore"><img src="https://img.shields.io/badge/Chrome-Extension-4285F4.svg?logo=googlechrome&logoColor=white" alt="Chrome Extension"></a>
+  <a href="#mcp-tool-for-ai-agents"><img src="https://img.shields.io/badge/MCP-Tool-8B5CF6.svg?logo=data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNCIgaGVpZ2h0PSIyNCIgdmlld0JveD0iMCAwIDI0IDI0IiBmaWxsPSJ3aGl0ZSI+PHBhdGggZD0iTTEyIDJMMyA3djEwbDkgNSA5LTVWN2wtOS01eiIvPjwvc3ZnPg==&logoColor=white" alt="MCP Tool"></a>
 </p>
 
 <p align="center">
-  <a href="https://si-merge.onrender.com">Try the Web App</a> · <a href="#chrome-extension">Get the Extension</a> · <a href="#rest-api">API Docs</a>
+  <a href="https://si-merge.onrender.com">Try the Web App</a> · <a href="#chrome-extension">Get the Extension</a> · <a href="#mcp-tool-for-ai-agents">MCP Tool</a> · <a href="#rest-api">API Docs</a>
 </p>
 
 ---
@@ -152,6 +153,66 @@ print(f"{batch.succeeded}/{batch.total} succeeded")
 
 ---
 
+### MCP Tool for AI Agents
+
+> Use SI Merge as a tool inside **Cursor**, **Claude Desktop**, or any MCP-compatible AI client — runs entirely on your local machine.
+
+**Install:**
+
+```bash
+git clone https://github.com/HengyuLi-Ozaki-lab/SI-Merge.git
+cd SI-Merge
+python3 -m venv venv && source venv/bin/activate
+pip install -r requirements.txt
+```
+
+**Configure Cursor** — add to your project's `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "si-merge": {
+      "command": "/absolute/path/to/SI-Merge/venv/bin/python",
+      "args": ["/absolute/path/to/SI-Merge/mcp_server.py"]
+    }
+  }
+}
+```
+
+**Configure Claude Desktop** — edit `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "si-merge": {
+      "command": "/absolute/path/to/SI-Merge/venv/bin/python",
+      "args": ["/absolute/path/to/SI-Merge/mcp_server.py"]
+    }
+  }
+}
+```
+
+**Available tools:**
+
+| Tool | Description |
+|:-----|:------------|
+| `merge_si` | Merge SI into a local article PDF (auto-discovers DOI and SI) |
+| `find_si` | Discover SI download links for a DOI |
+| `extract_doi` | Extract DOI from a PDF file |
+| `download_and_merge_by_doi` | End-to-end: download article + SI by DOI and produce merged PDF |
+
+Example conversation with your AI agent:
+
+> **You:** Merge the SI for `~/papers/nature_article.pdf`
+>
+> **Agent:** *(calls `merge_si` with the path)* Done — merged PDF saved to `~/papers/nature_article_with_SI.pdf` with 12 forward links and 12 back links.
+
+> **You:** Download and merge the paper with DOI 10.1038/s41586-024-07472-3
+>
+> **Agent:** *(calls `download_and_merge_by_doi`)* Done — 8-page article merged with 24-page SI, 15 cross-reference links created.
+
+---
+
 ## Architecture
 
 ```
@@ -197,7 +258,24 @@ print(f"{batch.succeeded}/{batch.total} succeeded")
 │                                                           │
 │  Publisher Scrapers:                                      │
 │  Nature · ACS · Wiley · Elsevier · PNAS · Science · RSC  │
-└──────────────────────────────────────────────────────────┘
+└───────────────────────▲──────────────────────────────────┘
+                        │ function calls
+┌───────────────────────┼──────────────────────────────────┐
+│                MCP Server  (mcp_server.py)                │
+│                    FastMCP · stdio                        │
+│  ┌───────────┐ ┌─────────┐ ┌───────────┐ ┌───────────┐  │
+│  │ merge_si  │ │ find_si │ │extract_doi│ │download & │  │
+│  │           │ │         │ │           │ │  merge    │  │
+│  └───────────┘ └─────────┘ └───────────┘ └───────────┘  │
+└───────────────────────▲──────────────────────────────────┘
+                        │ stdio (JSON-RPC)
+        ┌───────────────┼───────────────┐
+        │               │               │
+   ┌────┴────┐   ┌──────┴─────┐   ┌────┴────┐
+   │  Cursor │   │   Claude   │   │  Other  │
+   │   IDE   │   │  Desktop   │   │   MCP   │
+   │         │   │            │   │ Clients │
+   └─────────┘   └────────────┘   └─────────┘
 ```
 
 ---
