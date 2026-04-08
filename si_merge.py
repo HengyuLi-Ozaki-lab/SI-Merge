@@ -872,45 +872,49 @@ def get_article_text(
 # SI Reference Detection & Mapping
 # ---------------------------------------------------------------------------
 
+# All patterns are matched with re.IGNORECASE.
+
 # Patterns that appear in the main article text (ordered by specificity)
 MAIN_TEXT_SI_PATTERNS = [
     # Nature-style: "Supplementary Fig. S1", "Supplementary Figure S2a"
-    (r'[Ss]upplementary\s+Fig(?:ure|\.)\s*S?(\d+)([a-z]?)', "figure"),
-    (r'[Ss]upplementary\s+Figs?\.\s*S?(\d+)', "figure"),
-    (r'[Ss]upplementary\s+Tables?\s*S?(\d+)', "table"),
-    (r'[Ss]upplementary\s+Notes?\s*S?(\d+)', "note"),
-    (r'[Ss]upplementary\s+(Method|Discussion|Data)\w*', "section"),
+    (r'supplementary\s+fig(?:ure|s?\.)\s*S?(\d+)([a-z]?)', "figure"),
+    (r'supplementary\s+tables?\s*S?(\d+)', "table"),
+    (r'supplementary\s+notes?\s*S?(\d+)', "note"),
+    (r'supplementary\s+movies?\s*S?(\d+)', "movie"),
+    (r'supplementary\s+(?:method|discussion|data)\w*', "section"),
     # Standalone with S prefix (common across publishers)
-    (r'Figure\s+S(\d+)([a-z]?)', "figure"),
-    (r'Figures?\s+S(\d+)', "figure"),
-    (r'Fig\.\s*S(\d+)([a-z]?)', "figure"),
-    (r'Figs?\.\s*S(\d+)', "figure"),
-    (r'Table\s+S(\d+)', "table"),
-    (r'Tables\s+S(\d+)', "table"),
-    # ACS-style: "Section S1"
-    (r'Section\s+S(\d+)', "section"),
-    # "Scheme S1"
-    (r'Scheme\s+S(\d+)', "scheme"),
-    # "Equation S1"
-    (r'Equation\s+S(\d+)', "equation"),
+    (r'figures?\s+S(\d+)([a-z]?)', "figure"),
+    (r'figs?\.\s*S(\d+)([a-z]?)', "figure"),
+    (r'tables?\s+S(\d+)', "table"),
+    (r'movies?\s+S(\d+)', "movie"),
+    (r'notes?\s+S(\d+)', "note"),
+    (r'sections?\s+S(\d+)', "section"),
+    (r'schemes?\s+S(\d+)', "scheme"),
+    (r'equations?\s+S(\d+)', "equation"),
+    # "SI Appendix, Fig. S1" (PNAS style)
+    (r'SI\s+Appendix,?\s+fig(?:ure|s?\.)\s*S?(\d+)([a-z]?)', "figure"),
+    (r'SI\s+Appendix,?\s+tables?\s*S?(\d+)', "table"),
 ]
 
 # Patterns that appear in the SI document as headings/captions
 SI_HEADING_PATTERNS = [
     # Nature-style: "Supplementary Figure 1"
-    (r'Supplementary\s+Figure\s+(\d+)', "figure"),
-    (r'Supplementary\s+Table\s+(\d+)', "table"),
-    (r'Supplementary\s+Note\s+(\d+)', "note"),
-    (r'Supplementary\s+Method', "section_method"),
-    (r'Supplementary\s+Discussion', "section_discussion"),
-    (r'Supplementary\s+Data\s*(\d*)', "data"),
-    # ACS / general style: "Figure S1:", "Table S1:"
-    (r'Figure\s+S(\d+)', "figure"),
-    (r'Table\s+S(\d+)', "table"),
-    (r'Scheme\s+S(\d+)', "scheme"),
-    (r'Equation\s+S(\d+)', "equation"),
+    (r'supplementary\s+figure\s+(\d+)', "figure"),
+    (r'supplementary\s+table\s+(\d+)', "table"),
+    (r'supplementary\s+note\s+(\d+)', "note"),
+    (r'supplementary\s+movie\s+(\d+)', "movie"),
+    (r'supplementary\s+method', "section_method"),
+    (r'supplementary\s+discussion', "section_discussion"),
+    (r'supplementary\s+data\s*(\d*)', "data"),
+    # "Figure S1", "Fig. S1", "Table S1" (Science, ACS, general style)
+    (r'fig(?:ure)?\s*\.?\s*S(\d+)', "figure"),
+    (r'table\s*S(\d+)', "table"),
+    (r'scheme\s+S(\d+)', "scheme"),
+    (r'equation\s+S(\d+)', "equation"),
+    (r'movie\s+S(\d+)', "movie"),
+    (r'note\s+S(\d+)', "note"),
     # ACS section headings: "S1 DFT dataset" (standalone S-number at line start)
-    (r'(?:^|\n)\s*S(\d+)\s+[A-Z]', "section"),
+    (r'(?:^|\n)\s*S(\d+)[\.\s]+[A-Z]', "section"),
 ]
 
 
@@ -918,6 +922,17 @@ def _normalize_key(category: str, number: str | None) -> str:
     if number and number.isdigit():
         return f"{category}_{number}"
     return category
+
+
+def _extract_number(m: re.Match) -> str:
+    """Extract the first purely-numeric capture group from a regex match."""
+    if not m.lastindex:
+        return ""
+    for i in range(1, m.lastindex + 1):
+        g = m.group(i)
+        if g and g.isdigit():
+            return g
+    return ""
 
 
 def find_si_references_in_text(
@@ -930,25 +945,28 @@ def find_si_references_in_text(
     for page_idx in sorted(page_texts.keys()):
         page = doc[page_idx]
         text = page_texts[page_idx]
-        # Collapse whitespace/newlines for pattern matching but keep original for positioning
         text_flat = re.sub(r'\s+', ' ', text)
 
         for pattern, category in MAIN_TEXT_SI_PATTERNS:
-            for m in re.finditer(pattern, text_flat):
+            for m in re.finditer(pattern, text_flat, re.IGNORECASE):
                 full_match = m.group(0)
-                number = m.group(1) if m.lastindex and m.group(1).isdigit() else ""
+                number = _extract_number(m)
                 key = _normalize_key(category, number)
 
-                dedup = (page_idx, key, full_match)
+                dedup = (page_idx, key)
                 if dedup in seen:
                     continue
                 seen.add(dedup)
 
-                # Try searching both original and whitespace-collapsed versions
                 rects = page.search_for(full_match)
                 if not rects:
                     compact = re.sub(r'\s+', ' ', full_match)
                     rects = page.search_for(compact)
+                if not rects:
+                    # Try a shorter search string (e.g. "Fig. S6" from "fig. S6")
+                    short = re.sub(r'^supplementary\s+', '', full_match, flags=re.IGNORECASE).strip()
+                    if short != full_match:
+                        rects = page.search_for(short)
                 rect = rects[0] if rects else None
 
                 refs.append(SIReference(
@@ -961,30 +979,40 @@ def find_si_references_in_text(
 
 
 def find_si_anchors(doc: fitz.Document) -> list[SIAnchor]:
-    """Find headings/captions in the SI document."""
+    """Find headings/captions in the SI document.
+
+    Only keeps the *first* occurrence of each key so that forward links
+    jump to the caption rather than a later in-text mention.
+    """
     anchors = []
     seen_keys = set()
 
     for page_idx in range(len(doc)):
         text = doc[page_idx].get_text()
+        text_flat = re.sub(r'\s+', ' ', text)
         page = doc[page_idx]
 
         for pattern, category in SI_HEADING_PATTERNS:
-            for m in re.finditer(pattern, text, re.IGNORECASE | re.MULTILINE):
+            for m in re.finditer(pattern, text_flat, re.IGNORECASE | re.MULTILINE):
                 full_match = m.group(0).strip()
-                number = m.group(1) if m.lastindex and m.group(1) else ""
+                number = _extract_number(m)
                 key = _normalize_key(category, number)
 
                 if key in seen_keys:
                     continue
                 seen_keys.add(key)
 
-                # For section-header patterns like "\nS1 ", search for "S1" specifically
                 search_text = full_match
-                if category == "section" and re.match(r'\s*S\d+\s', full_match):
+                if category == "section" and re.match(r'\s*S\d+', full_match):
                     search_text = f"S{number}"
 
                 rects = page.search_for(search_text)
+                if not rects:
+                    rects = page.search_for(re.sub(r'\s+', ' ', full_match))
+                if not rects:
+                    short = re.sub(r'^supplementary\s+', '', full_match, flags=re.IGNORECASE).strip()
+                    if short != full_match:
+                        rects = page.search_for(short)
                 rect = rects[0] if rects else None
 
                 anchors.append(SIAnchor(
