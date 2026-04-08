@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "si-merge": {
+      "command": "/Users/lihengyu/Personal_project/SI_merge/venv/bin/python",
+      "args": ["/Users/lihengyu/Personal_project/SI_merge/mcp_server.py"]
+    }
+  }
+}
